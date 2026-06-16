@@ -10,6 +10,7 @@ export interface BaseShape {
   fillColor: string;
   strokeWidth: number;
   roughness: number;
+  seed: number;
 }
 
 export interface RectangleShape extends BaseShape {

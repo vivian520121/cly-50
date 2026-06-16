@@ -10,6 +10,7 @@ function getOptions(shape: Shape): Options {
     fill: shape.fillColor || undefined,
     fillStyle: 'hachure',
     hachureGap: 6,
+    seed: shape.seed ?? 1,
   };
 }
 

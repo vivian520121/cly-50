@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { renderAllShapes, getShapeAtPoint } from '../../utils/roughRenderer';
-import { generateId } from '../../utils/idGenerator';
+import { generateId, generateSeed } from '../../utils/idGenerator';
 import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape } from '../../types';
 import { DEFAULT_ROUGHNESS } from '../../types';
 
@@ -166,6 +166,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
         fontSize: currentFontSize,
       };
       addShape(textShape);
@@ -193,6 +194,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -209,6 +211,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -225,6 +228,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -241,6 +245,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -257,6 +262,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -272,6 +278,7 @@ export function Canvas() {
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
+        seed: generateSeed(),
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
