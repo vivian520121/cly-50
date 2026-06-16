@@ -303,8 +303,11 @@ export function Canvas() {
       } else if (shape.type === 'line' || shape.type === 'arrow') {
         updateShape(shape.id, { x2: x, y2: y } as Partial<Shape>);
       } else if (shape.type === 'doodle') {
-        const newPoints = [...shape.points, { x, y }];
-        updateShape(shape.id, { points: newPoints } as Partial<Shape>);
+        const currentShape = shapes.find((s) => s.id === shape.id);
+        if (currentShape && currentShape.type === 'doodle') {
+          const newPoints = [...currentShape.points, { x, y }];
+          updateShape(shape.id, { points: newPoints } as Partial<Shape>);
+        }
       }
     } else if (drawingState.kind === 'dragging') {
       const shape = shapes.find((s) => s.id === drawingState.shapeId);
