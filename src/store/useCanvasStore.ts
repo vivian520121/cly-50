@@ -1,10 +1,13 @@
 import { create } from 'zustand';
-import type { Shape, ToolType, CanvasState, HistoryState } from '../types';
+import type { Shape, ToolType, CanvasState, HistoryState, BrushStyle } from '../types';
 import {
   DEFAULT_COLOR,
   DEFAULT_STROKE_WIDTH,
   DEFAULT_FONT_SIZE,
   DEFAULT_ROUGHNESS,
+  DEFAULT_BRUSH_STYLE,
+  DEFAULT_SMOOTHING,
+  DEFAULT_PRESSURE_SENSITIVITY,
 } from '../types';
 
 const HISTORY_LIMIT = 50;
@@ -17,6 +20,9 @@ interface CanvasStore {
   currentColor: string;
   currentStrokeWidth: number;
   currentFontSize: number;
+  currentBrushStyle: BrushStyle;
+  currentSmoothing: number;
+  pressureSensitivity: boolean;
   offsetX: number;
   offsetY: number;
   zoom: number;
@@ -28,6 +34,9 @@ interface CanvasStore {
   setColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
   setFontSize: (size: number) => void;
+  setBrushStyle: (style: BrushStyle) => void;
+  setSmoothing: (smoothing: number) => void;
+  setPressureSensitivity: (enabled: boolean) => void;
   setSelectedId: (id: string | null) => void;
 
   addShape: (shape: Shape) => void;
@@ -68,6 +77,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   currentColor: DEFAULT_COLOR,
   currentStrokeWidth: DEFAULT_STROKE_WIDTH,
   currentFontSize: DEFAULT_FONT_SIZE,
+  currentBrushStyle: DEFAULT_BRUSH_STYLE,
+  currentSmoothing: DEFAULT_SMOOTHING,
+  pressureSensitivity: DEFAULT_PRESSURE_SENSITIVITY,
   offsetX: 0,
   offsetY: 0,
   zoom: 1,
@@ -79,6 +91,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setColor: (color) => set({ currentColor: color }),
   setStrokeWidth: (width) => set({ currentStrokeWidth: width }),
   setFontSize: (size) => set({ currentFontSize: size }),
+  setBrushStyle: (style) => set({ currentBrushStyle: style }),
+  setSmoothing: (smoothing) => set({ currentSmoothing: smoothing }),
+  setPressureSensitivity: (enabled) => set({ pressureSensitivity: enabled }),
   setSelectedId: (id) => set({ selectedId: id }),
 
   addShape: (shape) => {

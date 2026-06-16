@@ -1,5 +1,5 @@
 import rough from 'roughjs';
-import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape } from '../types';
+import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape, PointWithPressure, BrushStyle } from '../types';
 import type { Options } from 'roughjs/bin/core';
 
 const roughCache = new Map<string, ReturnType<typeof rough.generator>>();
@@ -129,11 +129,147 @@ function drawDoodle(
   rc: ReturnType<typeof rough.canvas>,
   shape: DoodleShape
 ) {
-  if (shape.points.length < 2) return;
-  const points = shape.points.map((p) => [p.x, p.y] as [number, number]);
-  rc.curve(points, {
-    ...getOptions(shape),
-  });
+  const canvasCtx = (rc as unknown as { canvas: HTMLCanvasElement }).canvas?.getContext('2d');
+  if (!canvasCtx) return;
+
+  if (shape.points.length < 2) {
+    if (shape.points.length === 1) {
+      const p = shape.points[0];
+      canvasCtx.save();
+      canvasCtx.fillStyle = shape.strokeColor;
+      const radius = getStrokeWidthFromPressure(p.pressure ?? 0.5, shape.strokeWidth) / 2;
+      canvasCtx.beginPath();
+      canvasCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.restore();
+    }
+    return;
+  }
+
+  const ctx = canvasCtx;
+
+  const brushStyle: BrushStyle = shape.brushStyle ?? 'solid';
+  const hasPressure = shape.points.some(p => p.pressure !== undefined && p.pressure !== 0.5);
+
+  if (brushStyle === 'solid' && !hasPressure) {
+    const points = shape.points.map((p) => [p.x, p.y] as [number, number]);
+    rc.curve(points, {
+      ...getOptions(shape),
+    });
+    return;
+  }
+
+  drawCustomDoodle(ctx, shape);
+}
+
+function getStrokeWidthFromPressure(pressure: number, baseWidth: number): number {
+  const minRatio = 0.2;
+  const maxRatio = 1.5;
+  const ratio = minRatio + pressure * (maxRatio - minRatio);
+  return Math.max(0.5, baseWidth * ratio);
+}
+
+function applyBrushStyle(ctx: CanvasRenderingContext2D, style: BrushStyle, strokeWidth: number) {
+  switch (style) {
+    case 'dashed':
+      ctx.setLineDash([strokeWidth * 3, strokeWidth * 2]);
+      break;
+    case 'dotted':
+      ctx.setLineDash([0, strokeWidth * 2.5]);
+      ctx.lineCap = 'round';
+      break;
+    case 'solid':
+    default:
+      ctx.setLineDash([]);
+      break;
+  }
+}
+
+function drawCustomDoodle(ctx: CanvasRenderingContext2D, shape: DoodleShape) {
+  const points = shape.points;
+  const brushStyle: BrushStyle = shape.brushStyle ?? 'solid';
+  const hasPressure = points.some(p => p.pressure !== undefined && p.pressure !== 0.5);
+
+  ctx.save();
+  ctx.strokeStyle = shape.strokeColor;
+  ctx.fillStyle = shape.strokeColor;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  if (!hasPressure) {
+    ctx.lineWidth = shape.strokeWidth;
+    applyBrushStyle(ctx, brushStyle, shape.strokeWidth);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  if (brushStyle === 'solid') {
+    drawPressureSolidLine(ctx, points, shape.strokeWidth);
+  } else {
+    drawPressureStyledLine(ctx, points, shape.strokeWidth, brushStyle);
+  }
+
+  ctx.restore();
+}
+
+function drawPressureSolidLine(
+  ctx: CanvasRenderingContext2D,
+  points: PointWithPressure[],
+  baseWidth: number
+) {
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+
+    const w1 = getStrokeWidthFromPressure(p1.pressure ?? 0.5, baseWidth);
+    const w2 = getStrokeWidthFromPressure(p2.pressure ?? 0.5, baseWidth);
+
+    const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+    const steps = Math.max(1, Math.ceil(dist / 2));
+
+    for (let j = 0; j < steps; j++) {
+      const t = j / steps;
+      const x = p1.x + (p2.x - p1.x) * t;
+      const y = p1.y + (p2.y - p1.y) * t;
+      const width = w1 + (w2 - w1) * t;
+
+      ctx.beginPath();
+      ctx.arc(x, y, width / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const lastPoint = points[points.length - 1];
+  const lastWidth = getStrokeWidthFromPressure(lastPoint.pressure ?? 0.5, baseWidth);
+  ctx.beginPath();
+  ctx.arc(lastPoint.x, lastPoint.y, lastWidth / 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPressureStyledLine(
+  ctx: CanvasRenderingContext2D,
+  points: PointWithPressure[],
+  baseWidth: number,
+  style: BrushStyle
+) {
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+
+  const avgPressure = points.reduce((sum, p) => sum + (p.pressure ?? 0.5), 0) / points.length;
+  const avgWidth = getStrokeWidthFromPressure(avgPressure, baseWidth);
+
+  ctx.lineWidth = avgWidth;
+  applyBrushStyle(ctx, style, avgWidth);
+  ctx.stroke();
 }
 
 function drawText(ctx: CanvasRenderingContext2D, shape: TextShape) {

@@ -63,7 +63,7 @@ export function PropertyPanel() {
           <input
             type="range"
             min="1"
-            max="8"
+            max="20"
             value={selectedShape.strokeWidth}
             onChange={(e) =>
               updateShape(selectedShape.id, {

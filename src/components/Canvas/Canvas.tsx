@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { renderAllShapes, getShapeAtPoint } from '../../utils/roughRenderer';
 import { generateId, generateSeed } from '../../utils/idGenerator';
-import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape } from '../../types';
+import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape, PointWithPressure } from '../../types';
 import { DEFAULT_ROUGHNESS } from '../../types';
 
 type DrawingState =
@@ -25,6 +25,9 @@ export function Canvas() {
     currentColor,
     currentStrokeWidth,
     currentFontSize,
+    currentBrushStyle,
+    currentSmoothing,
+    pressureSensitivity,
     offsetX,
     offsetY,
     zoom,
@@ -39,6 +42,8 @@ export function Canvas() {
     pushHistory,
   } = useCanvasStore();
 
+  const smoothedPointsRef = useRef<PointWithPressure[]>([]);
+
   const screenToCanvas = useCallback(
     (screenX: number, screenY: number) => {
       const rect = canvasRef.current!.getBoundingClientRect();
@@ -48,6 +53,25 @@ export function Canvas() {
       };
     },
     [offsetX, offsetY, zoom]
+  );
+
+  const smoothPoint = useCallback(
+    (newPoint: PointWithPressure): PointWithPressure => {
+      const points = smoothedPointsRef.current;
+      if (points.length === 0 || currentSmoothing === 0) {
+        return newPoint;
+      }
+
+      const smoothingFactor = currentSmoothing * 0.85;
+      const lastPoint = points[points.length - 1];
+
+      return {
+        x: lastPoint.x + (newPoint.x - lastPoint.x) * (1 - smoothingFactor),
+        y: lastPoint.y + (newPoint.y - lastPoint.y) * (1 - smoothingFactor),
+        pressure: lastPoint.pressure + (newPoint.pressure - lastPoint.pressure) * (1 - smoothingFactor),
+      };
+    },
+    [currentSmoothing]
   );
 
   const rerender = useCallback(() => {
@@ -114,7 +138,15 @@ export function Canvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, selectedId, deleteSelected, setSelectedId]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const getPressure = (e: React.PointerEvent | React.MouseEvent): number => {
+    if (!pressureSensitivity) return 0.5;
+    if ('pressure' in e) {
+      return e.pressure > 0 ? e.pressure : 0.5;
+    }
+    return 0.5;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d')!;
@@ -131,6 +163,7 @@ export function Canvas() {
     }
 
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    const pressure = getPressure(e);
 
     if (currentTool === 'select') {
       const clickedShape = getShapeAtPoint(shapes, x, y, ctx);
@@ -268,17 +301,20 @@ export function Canvas() {
       addShape(shape);
       setSelectedId(shape.id);
     } else if (currentTool === 'doodle') {
+      const initialPoint = { x, y, pressure };
+      smoothedPointsRef.current = [initialPoint];
       const shape: DoodleShape = {
         id: generateId(),
         type: 'doodle',
         x,
         y,
-        points: [{ x, y }],
+        points: [initialPoint],
         strokeColor: currentColor,
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
         roughness: DEFAULT_ROUGHNESS,
         seed: generateSeed(),
+        brushStyle: currentBrushStyle,
       };
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
@@ -286,7 +322,7 @@ export function Canvas() {
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent) => {
     if (drawingState.kind === 'none') return;
 
     if (drawingState.kind === 'panning') {
@@ -297,6 +333,7 @@ export function Canvas() {
     }
 
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    const pressure = getPressure(e);
 
     if (drawingState.kind === 'drawing') {
       const shape = drawingState.shape;
@@ -312,7 +349,10 @@ export function Canvas() {
       } else if (shape.type === 'doodle') {
         const currentShape = shapes.find((s) => s.id === shape.id);
         if (currentShape && currentShape.type === 'doodle') {
-          const newPoints = [...currentShape.points, { x, y }];
+          const rawPoint: PointWithPressure = { x, y, pressure };
+          const smoothedPoint = smoothPoint(rawPoint);
+          smoothedPointsRef.current.push(smoothedPoint);
+          const newPoints = [...currentShape.points, smoothedPoint];
           updateShape(shape.id, { points: newPoints } as Partial<Shape>);
         }
       }
@@ -338,6 +378,7 @@ export function Canvas() {
         const newPoints = shape.points.map((p) => ({
           x: p.x + dx,
           y: p.y + dy,
+          pressure: p.pressure,
         }));
         updateShape(shape.id, {
           x: shape.x + dx,
@@ -348,8 +389,9 @@ export function Canvas() {
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     setDrawingState({ kind: 'none' });
+    smoothedPointsRef.current = [];
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -372,11 +414,11 @@ export function Canvas() {
     >
       <canvas
         ref={canvasRef}
-        className="w-full h-full"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        className="w-full h-full touch-none"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
       />
 

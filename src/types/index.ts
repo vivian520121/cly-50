@@ -1,6 +1,14 @@
 export type ShapeType = 'rectangle' | 'circle' | 'diamond' | 'line' | 'arrow' | 'text' | 'doodle';
 export type ToolType = 'select' | ShapeType;
 
+export type BrushStyle = 'solid' | 'dashed' | 'dotted';
+
+export interface PointWithPressure {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
 export interface BaseShape {
   id: string;
   type: ShapeType;
@@ -11,6 +19,7 @@ export interface BaseShape {
   strokeWidth: number;
   roughness: number;
   seed: number;
+  brushStyle?: BrushStyle;
 }
 
 export interface RectangleShape extends BaseShape {
@@ -51,7 +60,7 @@ export interface ArrowShape extends BaseShape {
 
 export interface DoodleShape extends BaseShape {
   type: 'doodle';
-  points: { x: number; y: number }[];
+  points: PointWithPressure[];
 }
 
 export type Shape = RectangleShape | CircleShape | DiamondShape | LineShape | ArrowShape | TextShape | DoodleShape;
@@ -81,9 +90,22 @@ export const COLORS = [
   '#98D8C8',
 ];
 
-export const STROKE_WIDTHS = [1, 2, 3, 4, 6];
+export const STROKE_WIDTHS = [1, 2, 3, 4, 6, 8, 12, 20];
+export const MIN_STROKE_WIDTH = 1;
+export const MAX_STROKE_WIDTH = 20;
+
+export const BRUSH_STYLES: { value: BrushStyle; label: string }[] = [
+  { value: 'solid', label: '实线' },
+  { value: 'dashed', label: '虚线' },
+  { value: 'dotted', label: '点状' },
+];
 
 export const DEFAULT_COLOR = '#1E1E1E';
 export const DEFAULT_STROKE_WIDTH = 2;
 export const DEFAULT_FONT_SIZE = 20;
 export const DEFAULT_ROUGHNESS = 1.5;
+export const DEFAULT_BRUSH_STYLE: BrushStyle = 'solid';
+export const DEFAULT_SMOOTHING = 0.5;
+export const MIN_SMOOTHING = 0;
+export const MAX_SMOOTHING = 1;
+export const DEFAULT_PRESSURE_SENSITIVITY = true;

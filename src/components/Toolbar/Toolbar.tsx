@@ -14,9 +14,9 @@ import {
   Save,
 } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { COLORS, STROKE_WIDTHS } from '../../types';
+import { COLORS, STROKE_WIDTHS, MIN_STROKE_WIDTH, MAX_STROKE_WIDTH, BRUSH_STYLES, MIN_SMOOTHING, MAX_SMOOTHING } from '../../types';
 import { exportToPNG, exportToSVG } from '../../utils/exportUtils';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export function TopToolbar() {
   const {
@@ -151,7 +151,40 @@ export function LeftToolbar() {
     setColor,
     currentStrokeWidth,
     setStrokeWidth,
+    currentBrushStyle,
+    setBrushStyle,
+    currentSmoothing,
+    setSmoothing,
+    pressureSensitivity,
+    setPressureSensitivity,
   } = useCanvasStore();
+
+  const [customWidth, setCustomWidth] = useState<string>(String(currentStrokeWidth));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setCustomWidth(String(currentStrokeWidth));
+  }, [currentStrokeWidth]);
+
+  const handleCustomWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setCustomWidth(val);
+    const num = Number(val);
+    if (!isNaN(num) && num >= MIN_STROKE_WIDTH && num <= MAX_STROKE_WIDTH) {
+      setStrokeWidth(num);
+    }
+  };
+
+  const handleCustomWidthBlur = () => {
+    const num = Number(customWidth);
+    if (isNaN(num) || num < MIN_STROKE_WIDTH) {
+      setStrokeWidth(MIN_STROKE_WIDTH);
+      setCustomWidth(String(MIN_STROKE_WIDTH));
+    } else if (num > MAX_STROKE_WIDTH) {
+      setStrokeWidth(MAX_STROKE_WIDTH);
+      setCustomWidth(String(MAX_STROKE_WIDTH));
+    }
+  };
 
   const tools = [
     { id: 'select' as const, icon: MousePointer2, label: '选择 (V)' },
@@ -163,6 +196,8 @@ export function LeftToolbar() {
     { id: 'doodle' as const, icon: Pencil, label: '涂鸦 (P)' },
     { id: 'text' as const, icon: Type, label: '文本 (T)' },
   ];
+
+  const isPresetWidth = STROKE_WIDTHS.includes(currentStrokeWidth);
 
   return (
     <div className="fixed left-4 top-20 z-40 flex flex-col gap-3">
@@ -210,7 +245,7 @@ export function LeftToolbar() {
               key={width}
               onClick={() => setStrokeWidth(width)}
               className={`h-7 rounded flex items-center justify-center transition-all ${
-                currentStrokeWidth === width
+                isPresetWidth && currentStrokeWidth === width
                   ? 'bg-gray-100 ring-2 ring-[#FF6B6B]'
                   : 'hover:bg-gray-50'
               }`}
@@ -226,7 +261,86 @@ export function LeftToolbar() {
             </button>
           ))}
         </div>
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="number"
+            min={MIN_STROKE_WIDTH}
+            max={MAX_STROKE_WIDTH}
+            value={customWidth}
+            onChange={handleCustomWidthChange}
+            onBlur={handleCustomWidthBlur}
+            className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-[#FF6B6B] focus:border-transparent text-center"
+            title="自定义线宽 (1-20px)"
+          />
+          <span className="text-xs text-gray-400 whitespace-nowrap">px</span>
+        </div>
       </div>
+
+      {currentTool === 'doodle' && (
+        <>
+          <div className="bg-white rounded-xl shadow-lg p-3 border border-gray-100">
+            <p className="text-xs text-gray-500 mb-2 font-medium">笔刷样式</p>
+            <div className="flex flex-col gap-1.5">
+              {BRUSH_STYLES.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setBrushStyle(value)}
+                  className={`h-8 px-3 rounded text-xs font-medium transition-all flex items-center justify-center ${
+                    currentBrushStyle === value
+                      ? 'bg-[#FF6B6B] text-white'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <span className="w-6 h-0.5 bg-current rounded"
+                      style={{
+                        borderStyle: value === 'dashed' ? 'dashed' : value === 'dotted' ? 'dotted' : 'solid',
+                        borderWidth: value === 'solid' ? '0' : '1px',
+                      }}
+                    />
+                    <span>{label}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-3 border border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-500 font-medium">平滑度</p>
+              <span className="text-xs text-gray-400">
+                {Math.round(currentSmoothing * 100)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={MIN_SMOOTHING}
+              max={MAX_SMOOTHING}
+              step={0.05}
+              value={currentSmoothing}
+              onChange={(e) => setSmoothing(Number(e.target.value))}
+              className="w-full accent-[#FF6B6B]"
+            />
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-3 border border-gray-100">
+            <button
+              onClick={() => setPressureSensitivity(!pressureSensitivity)}
+              className={`w-full h-8 px-3 rounded text-xs font-medium transition-all flex items-center justify-center gap-2 ${
+                pressureSensitivity
+                  ? 'bg-[#FF6B6B] text-white'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <span>压感</span>
+              <span className={`text-xs ${pressureSensitivity ? 'text-white/80' : 'text-gray-400'}`}>
+                {pressureSensitivity ? '开启' : '关闭'}
+              </span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
