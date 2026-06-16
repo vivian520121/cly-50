@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { renderAllShapes, getShapeAtPoint } from '../../utils/roughRenderer';
 import { generateId } from '../../utils/idGenerator';
-import type { Shape, RectangleShape, LineShape, TextShape } from '../../types';
+import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape } from '../../types';
 import { DEFAULT_ROUGHNESS } from '../../types';
 
 type DrawingState =
@@ -92,8 +92,16 @@ export function Canvas() {
         useCanvasStore.getState().setTool('select');
       } else if (e.key === 'r' || e.key === 'R') {
         useCanvasStore.getState().setTool('rectangle');
+      } else if (e.key === 'o' || e.key === 'O') {
+        useCanvasStore.getState().setTool('circle');
+      } else if (e.key === 'd' || e.key === 'D') {
+        useCanvasStore.getState().setTool('diamond');
       } else if (e.key === 'l' || e.key === 'L') {
         useCanvasStore.getState().setTool('line');
+      } else if (e.key === 'a' || e.key === 'A') {
+        useCanvasStore.getState().setTool('arrow');
+      } else if (e.key === 'p' || e.key === 'P') {
+        useCanvasStore.getState().setTool('doodle');
       } else if (e.key === 't' || e.key === 'T') {
         useCanvasStore.getState().setTool('text');
       } else if (e.key === 'Escape') {
@@ -189,6 +197,38 @@ export function Canvas() {
       setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
       addShape(shape);
       setSelectedId(shape.id);
+    } else if (currentTool === 'circle') {
+      const shape: CircleShape = {
+        id: generateId(),
+        type: 'circle',
+        x,
+        y,
+        width: 0,
+        height: 0,
+        strokeColor: currentColor,
+        fillColor: 'transparent',
+        strokeWidth: currentStrokeWidth,
+        roughness: DEFAULT_ROUGHNESS,
+      };
+      setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
+      addShape(shape);
+      setSelectedId(shape.id);
+    } else if (currentTool === 'diamond') {
+      const shape: DiamondShape = {
+        id: generateId(),
+        type: 'diamond',
+        x,
+        y,
+        width: 0,
+        height: 0,
+        strokeColor: currentColor,
+        fillColor: 'transparent',
+        strokeWidth: currentStrokeWidth,
+        roughness: DEFAULT_ROUGHNESS,
+      };
+      setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
+      addShape(shape);
+      setSelectedId(shape.id);
     } else if (currentTool === 'line') {
       const shape: LineShape = {
         id: generateId(),
@@ -197,6 +237,37 @@ export function Canvas() {
         y,
         x2: x,
         y2: y,
+        strokeColor: currentColor,
+        fillColor: 'transparent',
+        strokeWidth: currentStrokeWidth,
+        roughness: DEFAULT_ROUGHNESS,
+      };
+      setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
+      addShape(shape);
+      setSelectedId(shape.id);
+    } else if (currentTool === 'arrow') {
+      const shape: ArrowShape = {
+        id: generateId(),
+        type: 'arrow',
+        x,
+        y,
+        x2: x,
+        y2: y,
+        strokeColor: currentColor,
+        fillColor: 'transparent',
+        strokeWidth: currentStrokeWidth,
+        roughness: DEFAULT_ROUGHNESS,
+      };
+      setDrawingState({ kind: 'drawing', shape, startX: x, startY: y });
+      addShape(shape);
+      setSelectedId(shape.id);
+    } else if (currentTool === 'doodle') {
+      const shape: DoodleShape = {
+        id: generateId(),
+        type: 'doodle',
+        x,
+        y,
+        points: [{ x, y }],
         strokeColor: currentColor,
         fillColor: 'transparent',
         strokeWidth: currentStrokeWidth,
@@ -223,14 +294,17 @@ export function Canvas() {
     if (drawingState.kind === 'drawing') {
       const shape = drawingState.shape;
 
-      if (shape.type === 'rectangle') {
+      if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'diamond') {
         const newX = Math.min(drawingState.startX, x);
         const newY = Math.min(drawingState.startY, y);
         const width = Math.abs(x - drawingState.startX);
         const height = Math.abs(y - drawingState.startY);
         updateShape(shape.id, { x: newX, y: newY, width, height } as Partial<Shape>);
-      } else if (shape.type === 'line') {
+      } else if (shape.type === 'line' || shape.type === 'arrow') {
         updateShape(shape.id, { x2: x, y2: y } as Partial<Shape>);
+      } else if (shape.type === 'doodle') {
+        const newPoints = [...shape.points, { x, y }];
+        updateShape(shape.id, { points: newPoints } as Partial<Shape>);
       }
     } else if (drawingState.kind === 'dragging') {
       const shape = shapes.find((s) => s.id === drawingState.shapeId);
@@ -241,14 +315,24 @@ export function Canvas() {
       const dx = newX - shape.x;
       const dy = newY - shape.y;
 
-      if (shape.type === 'rectangle' || shape.type === 'text') {
+      if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'diamond' || shape.type === 'text') {
         updateShape(shape.id, { x: newX, y: newY } as Partial<Shape>);
-      } else if (shape.type === 'line') {
+      } else if (shape.type === 'line' || shape.type === 'arrow') {
         updateShape(shape.id, {
           x: shape.x + dx,
           y: shape.y + dy,
           x2: shape.x2 + dx,
           y2: shape.y2 + dy,
+        } as Partial<Shape>);
+      } else if (shape.type === 'doodle') {
+        const newPoints = shape.points.map((p) => ({
+          x: p.x + dx,
+          y: p.y + dy,
+        }));
+        updateShape(shape.id, {
+          x: shape.x + dx,
+          y: shape.y + dy,
+          points: newPoints,
         } as Partial<Shape>);
       }
     }

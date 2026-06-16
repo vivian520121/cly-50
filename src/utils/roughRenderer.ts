@@ -1,5 +1,5 @@
 import rough from 'roughjs';
-import type { Shape, RectangleShape, LineShape, TextShape } from '../types';
+import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape } from '../types';
 import type { Options } from 'roughjs/bin/core';
 
 const roughCache = new Map<string, ReturnType<typeof rough.generator>>();
@@ -35,8 +35,20 @@ export function drawShape(
     case 'rectangle':
       drawRectangle(roughCanvas, shape);
       break;
+    case 'circle':
+      drawCircle(roughCanvas, shape);
+      break;
+    case 'diamond':
+      drawDiamond(roughCanvas, shape);
+      break;
     case 'line':
       drawLine(roughCanvas, shape);
+      break;
+    case 'arrow':
+      drawArrow(roughCanvas, ctx, shape);
+      break;
+    case 'doodle':
+      drawDoodle(roughCanvas, shape);
       break;
     case 'text':
       drawText(ctx, shape);
@@ -60,6 +72,69 @@ function drawLine(
   rc.line(shape.x, shape.y, shape.x2, shape.y2, getOptions(shape));
 }
 
+function drawCircle(
+  rc: ReturnType<typeof rough.canvas>,
+  shape: CircleShape
+) {
+  rc.ellipse(
+    shape.x + shape.width / 2,
+    shape.y + shape.height / 2,
+    shape.width,
+    shape.height,
+    getOptions(shape)
+  );
+}
+
+function drawDiamond(
+  rc: ReturnType<typeof rough.canvas>,
+  shape: DiamondShape
+) {
+  const cx = shape.x + shape.width / 2;
+  const cy = shape.y + shape.height / 2;
+  const points = [
+    [cx, shape.y],
+    [shape.x + shape.width, cy],
+    [cx, shape.y + shape.height],
+    [shape.x, cy],
+  ];
+  rc.polygon(points as [number, number][], getOptions(shape));
+}
+
+function drawArrow(
+  rc: ReturnType<typeof rough.canvas>,
+  ctx: CanvasRenderingContext2D,
+  shape: ArrowShape
+) {
+  rc.line(shape.x, shape.y, shape.x2, shape.y2, getOptions(shape));
+
+  const angle = Math.atan2(shape.y2 - shape.y, shape.x2 - shape.x);
+  const arrowSize = shape.strokeWidth * 6 + 10;
+  const arrowAngle = Math.PI / 6;
+
+  const x1 = shape.x2 - arrowSize * Math.cos(angle - arrowAngle);
+  const y1 = shape.y2 - arrowSize * Math.sin(angle - arrowAngle);
+  const x2 = shape.x2 - arrowSize * Math.cos(angle + arrowAngle);
+  const y2 = shape.y2 - arrowSize * Math.sin(angle + arrowAngle);
+
+  const arrowOptions = { ...getOptions(shape), fill: shape.strokeColor, fillStyle: 'solid' as const };
+  rc.polygon([
+    [shape.x2, shape.y2],
+    [x1, y1],
+    [x2, y2],
+  ] as [number, number][], arrowOptions);
+}
+
+function drawDoodle(
+  rc: ReturnType<typeof rough.canvas>,
+  shape: DoodleShape
+) {
+  if (shape.points.length < 2) return;
+  const points = shape.points.map((p) => [p.x, p.y] as [number, number]);
+  rc.curve(points, {
+    ...getOptions(shape),
+  });
+}
+
 function drawText(ctx: CanvasRenderingContext2D, shape: TextShape) {
   ctx.fillStyle = shape.strokeColor;
   ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
@@ -80,17 +155,38 @@ export function drawSelection(
 
   switch (shape.type) {
     case 'rectangle':
+    case 'circle':
+    case 'diamond':
       x = shape.x - 6;
       y = shape.y - 6;
       w = shape.width + 12;
       h = shape.height + 12;
       break;
     case 'line':
+    case 'arrow':
       x = Math.min(shape.x, shape.x2) - 6;
       y = Math.min(shape.y, shape.y2) - 6;
       w = Math.abs(shape.x2 - shape.x) + 12;
       h = Math.abs(shape.y2 - shape.y) + 12;
       break;
+    case 'doodle': {
+      if (shape.points.length === 0) {
+        x = 0; y = 0; w = 0; h = 0;
+        break;
+      }
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of shape.points) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+      x = minX - 6;
+      y = minY - 6;
+      w = maxX - minX + 12;
+      h = maxY - minY + 12;
+      break;
+    }
     case 'text':
       ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
       const metrics = ctx.measureText(shape.text);
@@ -190,19 +286,32 @@ function isPointInShape(
 
   switch (shape.type) {
     case 'rectangle':
+    case 'circle':
+    case 'diamond':
       return (
         px >= shape.x - tolerance &&
         px <= shape.x + shape.width + tolerance &&
         py >= shape.y - tolerance &&
         py <= shape.y + shape.height + tolerance
       );
-    case 'line': {
+    case 'line':
+    case 'arrow': {
       const dist = pointToLineDistance(
         px, py,
         shape.x, shape.y,
         shape.x2, shape.y2
       );
       return dist <= tolerance;
+    }
+    case 'doodle': {
+      if (shape.points.length < 2) return false;
+      for (let i = 0; i < shape.points.length - 1; i++) {
+        const p1 = shape.points[i];
+        const p2 = shape.points[i + 1];
+        const dist = pointToLineDistance(px, py, p1.x, p1.y, p2.x, p2.y);
+        if (dist <= tolerance) return true;
+      }
+      return false;
     }
     case 'text': {
       ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;

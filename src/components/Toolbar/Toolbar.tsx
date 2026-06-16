@@ -1,7 +1,11 @@
 import {
   MousePointer2,
   Square,
+  Circle,
+  Diamond,
   Minus,
+  ArrowRight,
+  Pencil,
   Type,
   Undo2,
   Redo2,
@@ -152,7 +156,11 @@ export function LeftToolbar() {
   const tools = [
     { id: 'select' as const, icon: MousePointer2, label: '选择 (V)' },
     { id: 'rectangle' as const, icon: Square, label: '矩形 (R)' },
+    { id: 'circle' as const, icon: Circle, label: '圆形 (O)' },
+    { id: 'diamond' as const, icon: Diamond, label: '菱形 (D)' },
     { id: 'line' as const, icon: Minus, label: '线条 (L)' },
+    { id: 'arrow' as const, icon: ArrowRight, label: '箭头 (A)' },
+    { id: 'doodle' as const, icon: Pencil, label: '涂鸦 (P)' },
     { id: 'text' as const, icon: Type, label: '文本 (T)' },
   ];
 

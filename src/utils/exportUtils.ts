@@ -25,11 +25,57 @@ function drawShapeToContext(
         shape.x, shape.y, shape.width, shape.height, getOptions(shape)
       );
       break;
+    case 'circle':
+      roughCanvas.ellipse(
+        shape.x + shape.width / 2,
+        shape.y + shape.height / 2,
+        shape.width,
+        shape.height,
+        getOptions(shape)
+      );
+      break;
+    case 'diamond': {
+      const cx = shape.x + shape.width / 2;
+      const cy = shape.y + shape.height / 2;
+      const points = [
+        [cx, shape.y],
+        [shape.x + shape.width, cy],
+        [cx, shape.y + shape.height],
+        [shape.x, cy],
+      ] as [number, number][];
+      roughCanvas.polygon(points, getOptions(shape));
+      break;
+    }
     case 'line':
       roughCanvas.line(
         shape.x, shape.y, shape.x2, shape.y2, getOptions(shape)
       );
       break;
+    case 'arrow': {
+      roughCanvas.line(
+        shape.x, shape.y, shape.x2, shape.y2, getOptions(shape)
+      );
+      const angle = Math.atan2(shape.y2 - shape.y, shape.x2 - shape.x);
+      const arrowSize = shape.strokeWidth * 6 + 10;
+      const arrowAngle = Math.PI / 6;
+      const x1 = shape.x2 - arrowSize * Math.cos(angle - arrowAngle);
+      const y1 = shape.y2 - arrowSize * Math.sin(angle - arrowAngle);
+      const x2 = shape.x2 - arrowSize * Math.cos(angle + arrowAngle);
+      const y2 = shape.y2 - arrowSize * Math.sin(angle + arrowAngle);
+      const arrowOptions = { ...getOptions(shape), fill: shape.strokeColor, fillStyle: 'solid' as const };
+      roughCanvas.polygon(
+        [[shape.x2, shape.y2], [x1, y1], [x2, y2]] as [number, number][],
+        arrowOptions
+      );
+      break;
+    }
+    case 'doodle': {
+      if (shape.points.length >= 2) {
+        const points = shape.points.map((p) => [p.x, p.y] as [number, number]);
+        roughCanvas.curve(points, getOptions(shape));
+      }
+      break;
+    }
     case 'text':
       ctx.fillStyle = shape.strokeColor;
       ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
@@ -116,9 +162,59 @@ export function exportToSVG(
       case 'rectangle':
         node = rc.rectangle(shape.x, shape.y, shape.width, shape.height, options);
         break;
+      case 'circle':
+        node = rc.ellipse(
+          shape.x + shape.width / 2,
+          shape.y + shape.height / 2,
+          shape.width,
+          shape.height,
+          options
+        );
+        break;
+      case 'diamond': {
+        const cx = shape.x + shape.width / 2;
+        const cy = shape.y + shape.height / 2;
+        const points = [
+          [cx, shape.y],
+          [shape.x + shape.width, cy],
+          [cx, shape.y + shape.height],
+          [shape.x, cy],
+        ] as [number, number][];
+        node = rc.polygon(points, options);
+        break;
+      }
       case 'line':
         node = rc.line(shape.x, shape.y, shape.x2, shape.y2, options);
         break;
+      case 'arrow': {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const lineNode = rc.line(shape.x, shape.y, shape.x2, shape.y2, options);
+        g.appendChild(lineNode);
+
+        const angle = Math.atan2(shape.y2 - shape.y, shape.x2 - shape.x);
+        const arrowSize = shape.strokeWidth * 6 + 10;
+        const arrowAngle = Math.PI / 6;
+        const x1 = shape.x2 - arrowSize * Math.cos(angle - arrowAngle);
+        const y1 = shape.y2 - arrowSize * Math.sin(angle - arrowAngle);
+        const x2 = shape.x2 - arrowSize * Math.cos(angle + arrowAngle);
+        const y2 = shape.y2 - arrowSize * Math.sin(angle + arrowAngle);
+
+        const arrowOptions = { ...options, fill: shape.strokeColor, fillStyle: 'solid' as const };
+        const arrowNode = rc.polygon(
+          [[shape.x2, shape.y2], [x1, y1], [x2, y2]] as [number, number][],
+          arrowOptions
+        );
+        g.appendChild(arrowNode);
+        node = g;
+        break;
+      }
+      case 'doodle': {
+        if (shape.points.length >= 2) {
+          const points = shape.points.map((p) => [p.x, p.y] as [number, number]);
+          node = rc.curve(points, options);
+        }
+        break;
+      }
       case 'text': {
         node = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         node.setAttribute('x', String(shape.x));
@@ -160,16 +256,27 @@ function getShapesBounds(shapes: Shape[]) {
   for (const shape of shapes) {
     switch (shape.type) {
       case 'rectangle':
+      case 'circle':
+      case 'diamond':
         minX = Math.min(minX, shape.x);
         minY = Math.min(minY, shape.y);
         maxX = Math.max(maxX, shape.x + shape.width);
         maxY = Math.max(maxY, shape.y + shape.height);
         break;
       case 'line':
+      case 'arrow':
         minX = Math.min(minX, shape.x, shape.x2);
         minY = Math.min(minY, shape.y, shape.y2);
         maxX = Math.max(maxX, shape.x, shape.x2);
         maxY = Math.max(maxY, shape.y, shape.y2);
+        break;
+      case 'doodle':
+        for (const p of shape.points) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        }
         break;
       case 'text':
         ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;

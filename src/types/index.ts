@@ -1,4 +1,4 @@
-export type ShapeType = 'rectangle' | 'line' | 'text';
+export type ShapeType = 'rectangle' | 'circle' | 'diamond' | 'line' | 'arrow' | 'text' | 'doodle';
 export type ToolType = 'select' | ShapeType;
 
 export interface BaseShape {
@@ -30,7 +30,30 @@ export interface TextShape extends BaseShape {
   fontSize: number;
 }
 
-export type Shape = RectangleShape | LineShape | TextShape;
+export interface CircleShape extends BaseShape {
+  type: 'circle';
+  width: number;
+  height: number;
+}
+
+export interface DiamondShape extends BaseShape {
+  type: 'diamond';
+  width: number;
+  height: number;
+}
+
+export interface ArrowShape extends BaseShape {
+  type: 'arrow';
+  x2: number;
+  y2: number;
+}
+
+export interface DoodleShape extends BaseShape {
+  type: 'doodle';
+  points: { x: number; y: number }[];
+}
+
+export type Shape = RectangleShape | CircleShape | DiamondShape | LineShape | ArrowShape | TextShape | DoodleShape;
 
 export interface CanvasState {
   shapes: Shape[];
