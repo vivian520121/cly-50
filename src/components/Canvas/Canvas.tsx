@@ -1,6 +1,13 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { renderAllShapes, getShapeAtPoint } from '../../utils/roughRenderer';
+import {
+  renderAllShapes,
+  getShapeAtPoint,
+  getHandleAtPoint,
+  getShapeBounds,
+  getShapeCenter,
+} from '../../utils/roughRenderer';
+import type { HandlePosition } from '../../utils/roughRenderer';
 import { generateId, generateSeed } from '../../utils/idGenerator';
 import type { Shape, RectangleShape, CircleShape, DiamondShape, LineShape, ArrowShape, TextShape, DoodleShape, PointWithPressure } from '../../types';
 import { DEFAULT_ROUGHNESS } from '../../types';
@@ -9,12 +16,68 @@ type DrawingState =
   | { kind: 'none' }
   | { kind: 'drawing'; shape: Shape; startX: number; startY: number }
   | { kind: 'dragging'; offsetX: number; offsetY: number; shapeId: string }
-  | { kind: 'panning'; startX: number; startY: number; origOffsetX: number; origOffsetY: number };
+  | { kind: 'panning'; startX: number; startY: number; origOffsetX: number; origOffsetY: number }
+  | {
+      kind: 'resizing';
+      shapeId: string;
+      handle: HandlePosition;
+      startX: number;
+      startY: number;
+      origBounds: { x: number; y: number; width: number; height: number };
+      origRotation: number;
+    }
+  | {
+      kind: 'rotating';
+      shapeId: string;
+      startAngle: number;
+      origRotation: number;
+      cx: number;
+      cy: number;
+    };
+
+function rotatePoint(
+  x: number,
+  y: number,
+  cx: number,
+  cy: number,
+  angle: number
+): { x: number; y: number } {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = x - cx;
+  const dy = y - cy;
+  return {
+    x: cx + dx * cos - dy * sin,
+    y: cy + dx * sin + dy * cos,
+  };
+}
+
+function getResizeCursor(handle: HandlePosition | null): string {
+  switch (handle) {
+    case 'nw':
+    case 'se':
+      return 'nwse-resize';
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize';
+    case 'n':
+    case 's':
+      return 'ns-resize';
+    case 'w':
+    case 'e':
+      return 'ew-resize';
+    case 'rotate':
+      return 'crosshair';
+    default:
+      return 'default';
+  }
+}
 
 export function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [drawingState, setDrawingState] = useState<DrawingState>({ kind: 'none' });
+  const [hoverHandle, setHoverHandle] = useState<HandlePosition | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -166,6 +229,40 @@ export function Canvas() {
     const pressure = getPressure(e);
 
     if (currentTool === 'select') {
+      if (selectedId) {
+        const selectedShape = shapes.find((s) => s.id === selectedId);
+        if (selectedShape) {
+          const hitHandle = getHandleAtPoint(selectedShape, x, y, ctx);
+          if (hitHandle) {
+            pushHistory();
+            if (hitHandle === 'rotate') {
+              const { cx, cy } = getShapeCenter(selectedShape, ctx);
+              const startAngle = Math.atan2(y - cy, x - cx);
+              setDrawingState({
+                kind: 'rotating',
+                shapeId: selectedShape.id,
+                startAngle,
+                origRotation: selectedShape.rotation || 0,
+                cx,
+                cy,
+              });
+            } else {
+              const bounds = getShapeBounds(selectedShape, ctx);
+              setDrawingState({
+                kind: 'resizing',
+                shapeId: selectedShape.id,
+                handle: hitHandle,
+                startX: x,
+                startY: y,
+                origBounds: { ...bounds },
+                origRotation: selectedShape.rotation || 0,
+              });
+            }
+            return;
+          }
+        }
+      }
+
       const clickedShape = getShapeAtPoint(shapes, x, y, ctx);
       if (clickedShape) {
         setSelectedId(clickedShape.id);
@@ -194,6 +291,7 @@ export function Canvas() {
         type: 'text',
         x,
         y,
+        rotation: 0,
         text: '文本',
         strokeColor: currentColor,
         fillColor: 'transparent',
@@ -221,6 +319,7 @@ export function Canvas() {
         type: 'rectangle',
         x,
         y,
+        rotation: 0,
         width: 0,
         height: 0,
         strokeColor: currentColor,
@@ -238,6 +337,7 @@ export function Canvas() {
         type: 'circle',
         x,
         y,
+        rotation: 0,
         width: 0,
         height: 0,
         strokeColor: currentColor,
@@ -255,6 +355,7 @@ export function Canvas() {
         type: 'diamond',
         x,
         y,
+        rotation: 0,
         width: 0,
         height: 0,
         strokeColor: currentColor,
@@ -272,6 +373,7 @@ export function Canvas() {
         type: 'line',
         x,
         y,
+        rotation: 0,
         x2: x,
         y2: y,
         strokeColor: currentColor,
@@ -289,6 +391,7 @@ export function Canvas() {
         type: 'arrow',
         x,
         y,
+        rotation: 0,
         x2: x,
         y2: y,
         strokeColor: currentColor,
@@ -308,6 +411,7 @@ export function Canvas() {
         type: 'doodle',
         x,
         y,
+        rotation: 0,
         points: [initialPoint],
         strokeColor: currentColor,
         fillColor: 'transparent',
@@ -322,8 +426,135 @@ export function Canvas() {
     }
   };
 
+  const applyResizeToShape = (
+    shape: Shape,
+    handle: HandlePosition,
+    newBounds: { x: number; y: number; width: number; height: number }
+  ): any => {
+    const updates: any = {};
+
+    if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'diamond') {
+      updates.x = newBounds.x;
+      updates.y = newBounds.y;
+      updates.width = Math.max(2, newBounds.width);
+      updates.height = Math.max(2, newBounds.height);
+    } else if (shape.type === 'line' || shape.type === 'arrow') {
+      const origBounds = getShapeBounds(shape);
+      const origCx = origBounds.x + origBounds.width / 2;
+      const origCy = origBounds.y + origBounds.height / 2;
+
+      const scaleX = origBounds.width > 0 ? newBounds.width / origBounds.width : 1;
+      const scaleY = origBounds.height > 0 ? newBounds.height / origBounds.height : 1;
+
+      let x1 = shape.x;
+      let y1 = shape.y;
+      let x2 = shape.x2;
+      let y2 = shape.y2;
+
+      const dx = shape.x - origCx;
+      const dy = shape.y - origCy;
+      const dx2 = shape.x2 - origCx;
+      const dy2 = shape.y2 - origCy;
+
+      if (handle === 'nw') {
+        x1 = newBounds.x;
+        y1 = newBounds.y;
+        x2 = origCx + dx2 * scaleX;
+        y2 = origCy + dy2 * scaleY;
+      } else if (handle === 'ne') {
+        x1 = origCx + dx * scaleX;
+        y1 = newBounds.y;
+        x2 = newBounds.x + newBounds.width;
+        y2 = origCy + dy2 * scaleY;
+      } else if (handle === 'sw') {
+        x1 = newBounds.x;
+        y1 = origCy + dy * scaleY;
+        x2 = origCx + dx2 * scaleX;
+        y2 = newBounds.y + newBounds.height;
+      } else if (handle === 'se') {
+        x1 = origCx + dx * scaleX;
+        y1 = origCy + dy * scaleY;
+        x2 = newBounds.x + newBounds.width;
+        y2 = newBounds.y + newBounds.height;
+      } else if (handle === 'n') {
+        y1 = newBounds.y;
+        y2 = origCy + dy2 * scaleY;
+      } else if (handle === 's') {
+        y1 = origCy + dy * scaleY;
+        y2 = newBounds.y + newBounds.height;
+      } else if (handle === 'w') {
+        x1 = newBounds.x;
+        x2 = origCx + dx2 * scaleX;
+      } else if (handle === 'e') {
+        x1 = origCx + dx * scaleX;
+        x2 = newBounds.x + newBounds.width;
+      }
+
+      updates.x = x1;
+      updates.y = y1;
+      updates.x2 = x2;
+      updates.y2 = y2;
+    } else if (shape.type === 'text') {
+      const origBounds = getShapeBounds(shape);
+      const origCx = origBounds.x + origBounds.width / 2;
+      const origCy = origBounds.y + origBounds.height / 2;
+
+      const newCx = newBounds.x + newBounds.width / 2;
+      const newCy = newBounds.y + newBounds.height / 2;
+
+      const scaleY = origBounds.height > 0 ? newBounds.height / origBounds.height : 1;
+      const newFontSize = Math.max(8, shape.fontSize * scaleY);
+
+      updates.x = shape.x + (newCx - origCx) - (newBounds.width - origBounds.width) / 2;
+      updates.y = shape.y + (newCy - origCy);
+      updates.fontSize = newFontSize;
+    } else if (shape.type === 'doodle') {
+      const origBounds = getShapeBounds(shape);
+      const origCx = origBounds.x + origBounds.width / 2;
+      const origCy = origBounds.y + origBounds.height / 2;
+
+      const newCx = newBounds.x + newBounds.width / 2;
+      const newCy = newBounds.y + newBounds.height / 2;
+
+      const scaleX = origBounds.width > 0 ? newBounds.width / origBounds.width : 1;
+      const scaleY = origBounds.height > 0 ? newBounds.height / origBounds.height : 1;
+
+      const newPoints = shape.points.map((p) => {
+        const dx = p.x - origCx;
+        const dy = p.y - origCy;
+        return {
+          ...p,
+          x: newCx + dx * scaleX,
+          y: newCy + dy * scaleY,
+        };
+      });
+
+      const minX = Math.min(...newPoints.map((p) => p.x));
+      const minY = Math.min(...newPoints.map((p) => p.y));
+
+      updates.x = minX;
+      updates.y = minY;
+      updates.points = newPoints;
+    }
+
+    return updates;
+  };
+
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (drawingState.kind === 'none') return;
+    if (drawingState.kind === 'none') {
+      if (currentTool === 'select' && selectedId && canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d')!;
+        const selectedShape = shapes.find((s) => s.id === selectedId);
+        if (selectedShape) {
+          const { x, y } = screenToCanvas(e.clientX, e.clientY);
+          const hit = getHandleAtPoint(selectedShape, x, y, ctx);
+          setHoverHandle(hit);
+        }
+      } else {
+        setHoverHandle(null);
+      }
+      return;
+    }
 
     if (drawingState.kind === 'panning') {
       const dx = e.clientX - drawingState.startX;
@@ -386,12 +617,70 @@ export function Canvas() {
           points: newPoints,
         } as Partial<Shape>);
       }
+    } else if (drawingState.kind === 'resizing') {
+      const shape = shapes.find((s) => s.id === drawingState.shapeId);
+      if (!shape) return;
+
+      const { cx, cy } = getShapeCenter(shape);
+      const rotation = drawingState.origRotation;
+
+      const localStart = rotatePoint(drawingState.startX, drawingState.startY, cx, cy, -rotation);
+      const localCurrent = rotatePoint(x, y, cx, cy, -rotation);
+
+      let { x: newX, y: newY, width: newW, height: newH } = drawingState.origBounds;
+      const handle = drawingState.handle;
+
+      const dxLocal = localCurrent.x - localStart.x;
+      const dyLocal = localCurrent.y - localStart.y;
+
+      if (handle.includes('n')) {
+        newY = drawingState.origBounds.y + dyLocal;
+        newH = drawingState.origBounds.height - dyLocal;
+      }
+      if (handle.includes('s')) {
+        newH = drawingState.origBounds.height + dyLocal;
+      }
+      if (handle.includes('w')) {
+        newX = drawingState.origBounds.x + dxLocal;
+        newW = drawingState.origBounds.width - dxLocal;
+      }
+      if (handle.includes('e')) {
+        newW = drawingState.origBounds.width + dxLocal;
+      }
+
+      if (newW < 2) {
+        if (handle.includes('w')) {
+          newX = drawingState.origBounds.x + drawingState.origBounds.width - 2;
+        }
+        newW = 2;
+      }
+      if (newH < 2) {
+        if (handle.includes('n')) {
+          newY = drawingState.origBounds.y + drawingState.origBounds.height - 2;
+        }
+        newH = 2;
+      }
+
+      const newBounds = { x: newX, y: newY, width: newW, height: newH };
+      const updates = applyResizeToShape(shape, handle, newBounds);
+      updateShape(shape.id, updates);
+    } else if (drawingState.kind === 'rotating') {
+      const shape = shapes.find((s) => s.id === drawingState.shapeId);
+      if (!shape) return;
+
+      const { cx, cy } = drawingState;
+      const currentAngle = Math.atan2(y - cy, x - cx);
+      const deltaAngle = currentAngle - drawingState.startAngle;
+      const newRotation = drawingState.origRotation + deltaAngle;
+
+      updateShape(shape.id, { rotation: newRotation } as Partial<Shape>);
     }
   };
 
   const handlePointerUp = () => {
     setDrawingState({ kind: 'none' });
     smoothedPointsRef.current = [];
+    setHoverHandle(null);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -406,11 +695,33 @@ export function Canvas() {
 
   const editingShape = shapes.find((s) => s.id === editingTextId);
 
+  const getCursorStyle = () => {
+    if (drawingState.kind !== 'none') {
+      if (drawingState.kind === 'resizing') {
+        return getResizeCursor(drawingState.handle);
+      }
+      if (drawingState.kind === 'rotating') {
+        return 'crosshair';
+      }
+      if (drawingState.kind === 'panning') {
+        return 'grabbing';
+      }
+      if (drawingState.kind === 'dragging') {
+        return 'move';
+      }
+      return 'crosshair';
+    }
+    if (currentTool === 'select') {
+      return hoverHandle ? getResizeCursor(hoverHandle) : 'default';
+    }
+    return 'crosshair';
+  };
+
   return (
     <div
       ref={containerRef}
       className="fixed inset-0 top-14 overflow-hidden"
-      style={{ cursor: currentTool === 'select' ? 'default' : 'crosshair' }}
+      style={{ cursor: getCursorStyle() }}
     >
       <canvas
         ref={canvasRef}
@@ -436,12 +747,14 @@ export function Canvas() {
           className="absolute bg-transparent outline-none resize-none border-none p-0 m-0"
           style={{
             left: offsetX + editingShape.x * zoom,
-            top: offsetX + editingShape.y * zoom,
+            top: offsetY + editingShape.y * zoom,
             fontSize: editingShape.fontSize * zoom,
             color: editingShape.strokeColor,
             fontFamily: "'Caveat', 'Segoe UI', sans-serif",
             lineHeight: 1,
             minWidth: '100px',
+            transform: `rotate(${editingShape.rotation || 0}rad)`,
+            transformOrigin: 'top left',
           }}
         />
       )}

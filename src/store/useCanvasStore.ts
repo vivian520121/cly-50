@@ -62,7 +62,11 @@ function loadShapesFromStorage(): Shape[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     if (data) {
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      return parsed.map((s: Shape) => ({
+        ...s,
+        rotation: s.rotation ?? 0,
+      }));
     }
   } catch (e) {
     console.error('Failed to load from storage:', e);

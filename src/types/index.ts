@@ -14,6 +14,7 @@ export interface BaseShape {
   type: ShapeType;
   x: number;
   y: number;
+  rotation: number;
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;

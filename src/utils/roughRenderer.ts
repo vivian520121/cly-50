@@ -4,6 +4,15 @@ import type { Options } from 'roughjs/bin/core';
 
 const roughCache = new Map<string, ReturnType<typeof rough.generator>>();
 
+export type HandlePosition =
+  | 'nw' | 'n' | 'ne'
+  | 'w' | 'e'
+  | 'sw' | 's' | 'se'
+  | 'rotate';
+
+const HANDLE_SIZE = 8;
+const ROTATE_HANDLE_OFFSET = 30;
+
 function getRoughGenerator(canvas: HTMLCanvasElement) {
   const key = canvas.id || 'default';
   if (!roughCache.has(key)) {
@@ -24,11 +33,96 @@ function getOptions(shape: Shape): Options {
   };
 }
 
+export interface ShapeBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function getShapeBounds(
+  shape: Shape,
+  ctx?: CanvasRenderingContext2D
+): ShapeBounds {
+  switch (shape.type) {
+    case 'rectangle':
+    case 'circle':
+    case 'diamond':
+      return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+    case 'line':
+    case 'arrow': {
+      const minX = Math.min(shape.x, shape.x2);
+      const minY = Math.min(shape.y, shape.y2);
+      return {
+        x: minX,
+        y: minY,
+        width: Math.abs(shape.x2 - shape.x),
+        height: Math.abs(shape.y2 - shape.y),
+      };
+    }
+    case 'doodle': {
+      if (shape.points.length === 0) {
+        return { x: 0, y: 0, width: 0, height: 0 };
+      }
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of shape.points) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+    case 'text': {
+      if (ctx) {
+        ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
+        const metrics = ctx.measureText(shape.text);
+        return { x: shape.x, y: shape.y, width: metrics.width, height: shape.fontSize };
+      }
+      return { x: shape.x, y: shape.y, width: shape.text.length * shape.fontSize * 0.6, height: shape.fontSize };
+    }
+  }
+}
+
+export function getShapeCenter(shape: Shape, ctx?: CanvasRenderingContext2D) {
+  const bounds = getShapeBounds(shape, ctx);
+  return {
+    cx: bounds.x + bounds.width / 2,
+    cy: bounds.y + bounds.height / 2,
+  };
+}
+
+function rotatePoint(
+  x: number, y: number,
+  cx: number, cy: number,
+  angle: number
+): { x: number; y: number } {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = x - cx;
+  const dy = y - cy;
+  return {
+    x: cx + dx * cos - dy * sin,
+    y: cy + dx * sin + dy * cos,
+  };
+}
+
+export function applyRotation(ctx: CanvasRenderingContext2D, shape: Shape, useCtx: CanvasRenderingContext2D) {
+  const rotation = shape.rotation || 0;
+  if (rotation === 0) return;
+  const { cx, cy } = getShapeCenter(shape, useCtx);
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.translate(-cx, -cy);
+}
+
 export function drawShape(
   ctx: CanvasRenderingContext2D,
   shape: Shape
 ) {
   ctx.save();
+
+  applyRotation(ctx, shape, ctx);
 
   const roughCanvas = rough.canvas(ctx.canvas);
 
@@ -279,62 +373,105 @@ function drawText(ctx: CanvasRenderingContext2D, shape: TextShape) {
   ctx.fillText(shape.text, shape.x, shape.y);
 }
 
+export function getHandleCoordinates(
+  bounds: ShapeBounds,
+  cx: number,
+  cy: number,
+  rotation: number
+): Record<HandlePosition, { x: number; y: number }> {
+  const { x, y, width, height } = bounds;
+  const pad = 6;
+
+  const rawHandles = {
+    nw: { x: x - pad, y: y - pad },
+    n:  { x: x + width / 2, y: y - pad },
+    ne: { x: x + width + pad, y: y - pad },
+    w:  { x: x - pad, y: y + height / 2 },
+    e:  { x: x + width + pad, y: y + height / 2 },
+    sw: { x: x - pad, y: y + height + pad },
+    s:  { x: x + width / 2, y: y + height + pad },
+    se: { x: x + width + pad, y: y + height + pad },
+    rotate: { x: x + width / 2, y: y - pad - ROTATE_HANDLE_OFFSET },
+  };
+
+  const result: Record<string, { x: number; y: number }> = {};
+  for (const key of Object.keys(rawHandles) as HandlePosition[]) {
+    result[key] = rotatePoint(rawHandles[key].x, rawHandles[key].y, cx, cy, rotation);
+  }
+  return result as Record<HandlePosition, { x: number; y: number }>;
+}
+
+function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.save();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.strokeStyle = '#FF6B6B';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.rect(x - HANDLE_SIZE / 2, y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawSelection(
   ctx: CanvasRenderingContext2D,
   shape: Shape
 ) {
   ctx.save();
+
+  const bounds = getShapeBounds(shape, ctx);
+  const { cx, cy } = getShapeCenter(shape, ctx);
+  const rotation = shape.rotation || 0;
+
   ctx.strokeStyle = '#FF6B6B';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([6, 4]);
 
-  let x: number, y: number, w: number, h: number;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.translate(-cx, -cy);
 
-  switch (shape.type) {
-    case 'rectangle':
-    case 'circle':
-    case 'diamond':
-      x = shape.x - 6;
-      y = shape.y - 6;
-      w = shape.width + 12;
-      h = shape.height + 12;
-      break;
-    case 'line':
-    case 'arrow':
-      x = Math.min(shape.x, shape.x2) - 6;
-      y = Math.min(shape.y, shape.y2) - 6;
-      w = Math.abs(shape.x2 - shape.x) + 12;
-      h = Math.abs(shape.y2 - shape.y) + 12;
-      break;
-    case 'doodle': {
-      if (shape.points.length === 0) {
-        x = 0; y = 0; w = 0; h = 0;
-        break;
-      }
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of shape.points) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      }
-      x = minX - 6;
-      y = minY - 6;
-      w = maxX - minX + 12;
-      h = maxY - minY + 12;
-      break;
+  const pad = 6;
+  ctx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.width + pad * 2, bounds.height + pad * 2);
+  ctx.restore();
+
+  const handles = getHandleCoordinates(bounds, cx, cy, rotation);
+
+  const midTop = handles.n;
+  const rotateHandle = handles.rotate;
+  ctx.save();
+  ctx.strokeStyle = '#FF6B6B';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(midTop.x, midTop.y);
+  ctx.lineTo(rotateHandle.x, rotateHandle.y);
+  ctx.stroke();
+  ctx.restore();
+
+  for (const key of Object.keys(handles) as HandlePosition[]) {
+    if (key === 'rotate') {
+      ctx.save();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#FF6B6B';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(handles[key].x, handles[key].y, HANDLE_SIZE / 2 + 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FF6B6B';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('↻', handles[key].x, handles[key].y);
+      ctx.restore();
+    } else {
+      drawHandle(ctx, handles[key].x, handles[key].y);
     }
-    case 'text':
-      ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
-      const metrics = ctx.measureText(shape.text);
-      x = shape.x - 6;
-      y = shape.y - 6;
-      w = metrics.width + 12;
-      h = shape.fontSize + 12;
-      break;
   }
 
-  ctx.strokeRect(x, y, w, h);
   ctx.restore();
 }
 
@@ -398,6 +535,29 @@ export function renderAllShapes(
   ctx.restore();
 }
 
+export function getHandleAtPoint(
+  shape: Shape,
+  px: number,
+  py: number,
+  ctx: CanvasRenderingContext2D
+): HandlePosition | null {
+  const bounds = getShapeBounds(shape, ctx);
+  const { cx, cy } = getShapeCenter(shape, ctx);
+  const rotation = shape.rotation || 0;
+  const handles = getHandleCoordinates(bounds, cx, cy, rotation);
+
+  const tolerance = HANDLE_SIZE;
+  for (const key of Object.keys(handles) as HandlePosition[]) {
+    const h = handles[key];
+    const dx = px - h.x;
+    const dy = py - h.y;
+    if (dx * dx + dy * dy <= tolerance * tolerance) {
+      return key;
+    }
+  }
+  return null;
+}
+
 export function getShapeAtPoint(
   shapes: Shape[],
   px: number,
@@ -420,23 +580,35 @@ function isPointInShape(
   ctx: CanvasRenderingContext2D
 ): boolean {
   const tolerance = 8;
+  const rotation = shape.rotation || 0;
+  const { cx, cy } = getShapeCenter(shape, ctx);
+
+  let localPx = px;
+  let localPy = py;
+  if (rotation !== 0) {
+    const rotated = rotatePoint(px, py, cx, cy, -rotation);
+    localPx = rotated.x;
+    localPy = rotated.y;
+  }
 
   switch (shape.type) {
     case 'rectangle':
     case 'circle':
     case 'diamond':
       return (
-        px >= shape.x - tolerance &&
-        px <= shape.x + shape.width + tolerance &&
-        py >= shape.y - tolerance &&
-        py <= shape.y + shape.height + tolerance
+        localPx >= shape.x - tolerance &&
+        localPx <= shape.x + shape.width + tolerance &&
+        localPy >= shape.y - tolerance &&
+        localPy <= shape.y + shape.height + tolerance
       );
     case 'line':
     case 'arrow': {
+      const { x, y } = rotatePoint(shape.x, shape.y, cx, cy, rotation);
+      const { x: x2, y: y2 } = rotatePoint(shape.x2, shape.y2, cx, cy, rotation);
       const dist = pointToLineDistance(
         px, py,
-        shape.x, shape.y,
-        shape.x2, shape.y2
+        x, y,
+        x2, y2
       );
       return dist <= tolerance;
     }
@@ -445,7 +617,9 @@ function isPointInShape(
       for (let i = 0; i < shape.points.length - 1; i++) {
         const p1 = shape.points[i];
         const p2 = shape.points[i + 1];
-        const dist = pointToLineDistance(px, py, p1.x, p1.y, p2.x, p2.y);
+        const rp1 = rotatePoint(p1.x, p1.y, cx, cy, rotation);
+        const rp2 = rotatePoint(p2.x, p2.y, cx, cy, rotation);
+        const dist = pointToLineDistance(px, py, rp1.x, rp1.y, rp2.x, rp2.y);
         if (dist <= tolerance) return true;
       }
       return false;
@@ -454,10 +628,10 @@ function isPointInShape(
       ctx.font = `${shape.fontSize}px 'Caveat', 'Segoe UI', sans-serif`;
       const metrics = ctx.measureText(shape.text);
       return (
-        px >= shape.x - tolerance &&
-        px <= shape.x + metrics.width + tolerance &&
-        py >= shape.y - tolerance &&
-        py <= shape.y + shape.fontSize + tolerance
+        localPx >= shape.x - tolerance &&
+        localPx <= shape.x + metrics.width + tolerance &&
+        localPy >= shape.y - tolerance &&
+        localPy <= shape.y + shape.fontSize + tolerance
       );
     }
   }
