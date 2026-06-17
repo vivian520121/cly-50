@@ -15,7 +15,10 @@ import { DEFAULT_ROUGHNESS } from '../../types';
 type DrawingState =
   | { kind: 'none' }
   | { kind: 'drawing'; shape: Shape; startX: number; startY: number }
-  | { kind: 'dragging'; offsetX: number; offsetY: number; shapeId: string }
+  | {
+      kind: 'dragging';
+      offsets: { shapeId: string; offsetX: number; offsetY: number }[];
+    }
   | { kind: 'panning'; startX: number; startY: number; origOffsetX: number; origOffsetY: number }
   | {
       kind: 'resizing';
@@ -83,7 +86,7 @@ export function Canvas() {
 
   const {
     shapes,
-    selectedId,
+    selectedIds,
     currentTool,
     currentColor,
     currentStrokeWidth,
@@ -96,16 +99,22 @@ export function Canvas() {
     zoom,
     addShape,
     updateShape,
+    updateShapes,
     setSelectedId,
+    setSelectedIds,
+    toggleSelectedId,
     setOffset,
     setZoom,
     undo,
     redo,
     deleteSelected,
+    duplicateSelected,
     pushHistory,
   } = useCanvasStore();
 
   const smoothedPointsRef = useRef<PointWithPressure[]>([]);
+
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   const screenToCanvas = useCallback(
     (screenX: number, screenY: number) => {
@@ -142,12 +151,12 @@ export function Canvas() {
     renderAllShapes(
       canvasRef.current,
       shapes,
-      selectedId,
+      selectedIds,
       offsetX,
       offsetY,
       zoom
     );
-  }, [shapes, selectedId, offsetX, offsetY, zoom]);
+  }, [shapes, selectedIds, offsetX, offsetY, zoom]);
 
   useEffect(() => {
     rerender();
@@ -172,7 +181,10 @@ export function Canvas() {
       ) {
         e.preventDefault();
         redo();
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        duplicateSelected();
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
         e.preventDefault();
         deleteSelected();
       } else if (e.key === 'v' || e.key === 'V') {
@@ -182,7 +194,9 @@ export function Canvas() {
       } else if (e.key === 'o' || e.key === 'O') {
         useCanvasStore.getState().setTool('circle');
       } else if (e.key === 'd' || e.key === 'D') {
-        useCanvasStore.getState().setTool('diamond');
+        if (!e.ctrlKey && !e.metaKey) {
+          useCanvasStore.getState().setTool('diamond');
+        }
       } else if (e.key === 'l' || e.key === 'L') {
         useCanvasStore.getState().setTool('line');
       } else if (e.key === 'a' || e.key === 'A') {
@@ -192,14 +206,14 @@ export function Canvas() {
       } else if (e.key === 't' || e.key === 'T') {
         useCanvasStore.getState().setTool('text');
       } else if (e.key === 'Escape') {
-        setSelectedId(null);
+        setSelectedIds([]);
         setEditingTextId(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, selectedId, deleteSelected, setSelectedId]);
+  }, [undo, redo, selectedIds, deleteSelected, duplicateSelected, setSelectedIds]);
 
   const getPressure = (e: React.PointerEvent | React.MouseEvent): number => {
     if (!pressureSensitivity) return 0.5;
@@ -227,6 +241,7 @@ export function Canvas() {
 
     const { x, y } = screenToCanvas(e.clientX, e.clientY);
     const pressure = getPressure(e);
+    const isMultiSelect = e.ctrlKey || e.metaKey;
 
     if (currentTool === 'select') {
       if (selectedId) {
@@ -265,21 +280,45 @@ export function Canvas() {
 
       const clickedShape = getShapeAtPoint(shapes, x, y, ctx);
       if (clickedShape) {
-        setSelectedId(clickedShape.id);
-        pushHistory();
+        if (isMultiSelect) {
+          toggleSelectedId(clickedShape.id);
+        } else if (!selectedIds.includes(clickedShape.id)) {
+          setSelectedId(clickedShape.id);
+        }
+
+        const newSelectedIds = isMultiSelect
+          ? selectedIds.includes(clickedShape.id)
+            ? selectedIds.filter((id) => id !== clickedShape.id)
+            : [...selectedIds, clickedShape.id]
+          : [clickedShape.id];
+
+        const dragOffsets = newSelectedIds.map((id) => {
+          const shape = shapes.find((s) => s.id === id);
+          if (!shape) return null;
+          return {
+            shapeId: id,
+            offsetX: x - shape.x,
+            offsetY: y - shape.y,
+          };
+        }).filter(Boolean) as { shapeId: string; offsetX: number; offsetY: number }[];
+
+        if (!isMultiSelect || selectedIds.length <= 1) {
+          pushHistory();
+        }
+
         setDrawingState({
           kind: 'dragging',
-          offsetX: x - clickedShape.x,
-          offsetY: y - clickedShape.y,
-          shapeId: clickedShape.id,
+          offsets: dragOffsets,
         });
 
-        if (clickedShape.type === 'text' && e.detail === 2) {
+        if (clickedShape.type === 'text' && e.detail === 2 && newSelectedIds.length === 1) {
           setEditingTextId(clickedShape.id);
           setTimeout(() => inputRef.current?.focus(), 50);
         }
       } else {
-        setSelectedId(null);
+        if (!isMultiSelect) {
+          setSelectedIds([]);
+        }
       }
       return;
     }
@@ -588,34 +627,36 @@ export function Canvas() {
         }
       }
     } else if (drawingState.kind === 'dragging') {
-      const shape = shapes.find((s) => s.id === drawingState.shapeId);
-      if (!shape) return;
+      for (const dragInfo of drawingState.offsets) {
+        const shape = shapes.find((s) => s.id === dragInfo.shapeId);
+        if (!shape) continue;
 
-      const newX = x - drawingState.offsetX;
-      const newY = y - drawingState.offsetY;
-      const dx = newX - shape.x;
-      const dy = newY - shape.y;
+        const newX = x - dragInfo.offsetX;
+        const newY = y - dragInfo.offsetY;
+        const dx = newX - shape.x;
+        const dy = newY - shape.y;
 
-      if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'diamond' || shape.type === 'text') {
-        updateShape(shape.id, { x: newX, y: newY } as Partial<Shape>);
-      } else if (shape.type === 'line' || shape.type === 'arrow') {
-        updateShape(shape.id, {
-          x: shape.x + dx,
-          y: shape.y + dy,
-          x2: shape.x2 + dx,
-          y2: shape.y2 + dy,
-        } as Partial<Shape>);
-      } else if (shape.type === 'doodle') {
-        const newPoints = shape.points.map((p) => ({
-          x: p.x + dx,
-          y: p.y + dy,
-          pressure: p.pressure,
-        }));
-        updateShape(shape.id, {
-          x: shape.x + dx,
-          y: shape.y + dy,
-          points: newPoints,
-        } as Partial<Shape>);
+        if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'diamond' || shape.type === 'text') {
+          updateShape(shape.id, { x: newX, y: newY } as Partial<Shape>);
+        } else if (shape.type === 'line' || shape.type === 'arrow') {
+          updateShape(shape.id, {
+            x: shape.x + dx,
+            y: shape.y + dy,
+            x2: shape.x2 + dx,
+            y2: shape.y2 + dy,
+          } as Partial<Shape>);
+        } else if (shape.type === 'doodle') {
+          const newPoints = shape.points.map((p) => ({
+            x: p.x + dx,
+            y: p.y + dy,
+            pressure: p.pressure,
+          }));
+          updateShape(shape.id, {
+            x: shape.x + dx,
+            y: shape.y + dy,
+            points: newPoints,
+          } as Partial<Shape>);
+        }
       }
     } else if (drawingState.kind === 'resizing') {
       const shape = shapes.find((s) => s.id === drawingState.shapeId);

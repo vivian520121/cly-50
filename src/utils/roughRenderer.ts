@@ -475,6 +475,32 @@ export function drawSelection(
   ctx.restore();
 }
 
+export function drawMultiSelection(
+  ctx: CanvasRenderingContext2D,
+  shape: Shape
+) {
+  ctx.save();
+
+  const bounds = getShapeBounds(shape, ctx);
+  const { cx, cy } = getShapeCenter(shape, ctx);
+  const rotation = shape.rotation || 0;
+
+  ctx.strokeStyle = '#4ECDC4';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.translate(-cx, -cy);
+
+  const pad = 6;
+  ctx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.width + pad * 2, bounds.height + pad * 2);
+  ctx.restore();
+
+  ctx.restore();
+}
+
 export function drawGrid(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -502,7 +528,7 @@ export function drawGrid(
 export function renderAllShapes(
   canvas: HTMLCanvasElement,
   shapes: Shape[],
-  selectedId: string | null,
+  selectedIds: string[],
   offsetX: number,
   offsetY: number,
   zoom: number
@@ -525,10 +551,17 @@ export function renderAllShapes(
   ctx.translate(offsetX, offsetY);
   ctx.scale(zoom, zoom);
 
+  const selectedSet = new Set(selectedIds);
+  const primaryId = selectedIds.length === 1 ? selectedIds[0] : null;
+
   for (const shape of shapes) {
     drawShape(ctx, shape);
-    if (shape.id === selectedId) {
-      drawSelection(ctx, shape);
+    if (selectedSet.has(shape.id)) {
+      if (shape.id === primaryId) {
+        drawSelection(ctx, shape);
+      } else {
+        drawMultiSelection(ctx, shape);
+      }
     }
   }
 
