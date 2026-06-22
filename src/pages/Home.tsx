@@ -1,6 +1,7 @@
 import { Canvas } from '@/components/Canvas/Canvas';
 import { TopToolbar, LeftToolbar } from '@/components/Toolbar/Toolbar';
 import { PropertyPanel } from '@/components/PropertyPanel/PropertyPanel';
+import { CustomShapesPanel } from '@/components/CustomShapesPanel/CustomShapesPanel';
 
 export default function Home() {
   return (
@@ -9,6 +10,7 @@ export default function Home() {
       <LeftToolbar />
       <Canvas />
       <PropertyPanel />
+      <CustomShapesPanel />
     </div>
   );
 }

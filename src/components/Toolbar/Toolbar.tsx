@@ -12,8 +12,10 @@ import {
   Download,
   Trash2,
   Save,
+  Layers,
 } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
+import { useCustomShapesStore } from '../../store/useCustomShapesStore';
 import { COLORS, STROKE_WIDTHS, MIN_STROKE_WIDTH, MAX_STROKE_WIDTH, BRUSH_STYLES, MIN_SMOOTHING, MAX_SMOOTHING } from '../../types';
 import { exportToPNG, exportToSVG } from '../../utils/exportUtils';
 import { useState, useRef, useEffect } from 'react';
@@ -158,6 +160,7 @@ export function LeftToolbar() {
     pressureSensitivity,
     setPressureSensitivity,
   } = useCanvasStore();
+  const { showPanel, setShowPanel, templates } = useCustomShapesStore();
 
   const [customWidth, setCustomWidth] = useState<string>(String(currentStrokeWidth));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -216,6 +219,23 @@ export function LeftToolbar() {
             <Icon size={20} />
           </button>
         ))}
+        <div className="w-full h-px bg-gray-100 my-1" />
+        <button
+          onClick={() => setShowPanel(!showPanel)}
+          title="自定义图形库"
+          className={`relative w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
+            showPanel
+              ? 'bg-green-500 text-white shadow-md'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Layers size={20} />
+          {templates.length > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#FF6B6B] text-white text-[10px] rounded-full flex items-center justify-center font-medium">
+              {templates.length > 9 ? '9+' : templates.length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="bg-white rounded-xl shadow-lg p-3 border border-gray-100">

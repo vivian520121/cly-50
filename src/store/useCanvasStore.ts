@@ -43,6 +43,7 @@ interface CanvasStore {
   toggleSelectedId: (id: string) => void;
 
   addShape: (shape: Shape) => void;
+  addShapes: (shapes: Shape[]) => string[];
   updateShape: (id: string, updates: Partial<Shape>) => void;
   updateShapes: (ids: string[], updates: Partial<Shape>) => void;
   deleteShape: (id: string) => void;
@@ -132,6 +133,20 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       saveStatus: 'unsaved',
     });
     get().saveToStorage();
+  },
+
+  addShapes: (newShapes) => {
+    if (newShapes.length === 0) return [];
+    const state = get();
+    const ids = newShapes.map((s) => s.id);
+    set({
+      shapes: [...state.shapes, ...newShapes],
+      past: [...state.past.slice(-HISTORY_LIMIT + 1), state.shapes],
+      future: [],
+      saveStatus: 'unsaved',
+    });
+    get().saveToStorage();
+    return ids;
   },
 
   updateShape: (id, updates) => {

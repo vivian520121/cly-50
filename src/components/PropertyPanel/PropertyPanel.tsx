@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { X, Copy } from 'lucide-react';
+import { useCustomShapesStore } from '../../store/useCustomShapesStore';
+import { X, Copy, BookmarkPlus } from 'lucide-react';
 import { COLORS } from '../../types';
 
 const SHAPE_TYPE_LABELS: Record<string, string> = {
@@ -23,6 +25,10 @@ export function PropertyPanel() {
     duplicateSelected,
     pushHistory,
   } = useCanvasStore();
+  const { addTemplate, setShowPanel } = useCustomShapesStore();
+
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [shapeName, setShapeName] = useState('');
 
   const isMultiSelect = selectedIds.length > 1;
   const selectedShapes = selectedIds.map((id) => shapes.find((s) => s.id === id)).filter(Boolean) as any[];
@@ -73,6 +79,30 @@ export function PropertyPanel() {
     } else {
       deleteShape(primaryShape.id);
     }
+  };
+
+  const handleSaveToCustom = () => {
+    const shapesToSave = selectedIds
+      .map((id) => shapes.find((s) => s.id === id))
+      .filter(Boolean) as any[];
+    if (shapesToSave.length === 0) return;
+
+    const defaultName = isMultiSelect
+      ? `图形组 ${shapesToSave.length}`
+      : `${SHAPE_TYPE_LABELS[primaryShape.type] || '图形'}`;
+    setShapeName(defaultName);
+    setShowSaveDialog(true);
+  };
+
+  const confirmSaveToCustom = () => {
+    const shapesToSave = selectedIds
+      .map((id) => shapes.find((s) => s.id === id))
+      .filter(Boolean) as any[];
+    if (shapesToSave.length === 0) return;
+
+    addTemplate(shapeName, shapesToSave);
+    setShowSaveDialog(false);
+    setShowPanel(true);
   };
 
   const getTitle = () => {
@@ -183,6 +213,14 @@ export function PropertyPanel() {
           </div>
         )}
 
+        <button
+          onClick={handleSaveToCustom}
+          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
+        >
+          <BookmarkPlus size={14} />
+          保存为自定义图形
+        </button>
+
         <div className="grid grid-cols-2 gap-2 pt-2">
           <button
             onClick={handleDuplicate}
@@ -200,6 +238,40 @@ export function PropertyPanel() {
           </button>
         </div>
       </div>
+
+      {showSaveDialog && (
+        <div className="absolute inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-4 w-[260px] shadow-2xl">
+            <h3 className="font-medium text-sm text-gray-700 mb-3">保存为自定义图形</h3>
+            <input
+              type="text"
+              value={shapeName}
+              onChange={(e) => setShapeName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmSaveToCustom();
+                if (e.key === 'Escape') setShowSaveDialog(false);
+              }}
+              placeholder="输入图形名称"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B6B] focus:border-transparent mb-3"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowSaveDialog(false)}
+                className="flex-1 py-2 px-3 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmSaveToCustom}
+                className="flex-1 py-2 px-3 bg-[#FF6B6B] text-white rounded-lg hover:bg-[#FF5252] transition-colors text-sm font-medium"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

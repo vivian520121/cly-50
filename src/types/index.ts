@@ -110,3 +110,17 @@ export const DEFAULT_SMOOTHING = 0.5;
 export const MIN_SMOOTHING = 0;
 export const MAX_SMOOTHING = 1;
 export const DEFAULT_PRESSURE_SENSITIVITY = true;
+
+export interface CustomShapeTemplate {
+  id: string;
+  name: string;
+  shapes: Shape[];
+  createdAt: number;
+  thumbnail?: string;
+}
+
+export interface CustomShapeGroup {
+  id: string;
+  name: string;
+  templates: CustomShapeTemplate[];
+}

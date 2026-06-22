@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
+import { useCustomShapesStore } from '../../store/useCustomShapesStore';
 import {
   renderAllShapes,
   getShapeAtPoint,
@@ -98,6 +99,7 @@ export function Canvas() {
     offsetY,
     zoom,
     addShape,
+    addShapes,
     updateShape,
     updateShapes,
     setSelectedId,
@@ -111,6 +113,7 @@ export function Canvas() {
     duplicateSelected,
     pushHistory,
   } = useCanvasStore();
+  const { instantiateTemplate } = useCustomShapesStore();
 
   const smoothedPointsRef = useRef<PointWithPressure[]>([]);
 
@@ -734,6 +737,25 @@ export function Canvas() {
     setZoom(zoom + delta * zoom);
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/custom-shape')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    const templateId = e.dataTransfer.getData('application/custom-shape');
+    if (!templateId) return;
+    e.preventDefault();
+
+    const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    const newShapes = instantiateTemplate(templateId, x, y);
+    const ids = addShapes(newShapes);
+    setSelectedIds(ids);
+    useCanvasStore.getState().setTool('select');
+  };
+
   const editingShape = shapes.find((s) => s.id === editingTextId);
 
   const getCursorStyle = () => {
@@ -772,6 +794,8 @@ export function Canvas() {
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       />
 
       {editingShape && editingShape.type === 'text' && inputRef && (
